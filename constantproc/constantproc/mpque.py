@@ -9,6 +9,7 @@ from datetime import datetime as dt
 import traceback
 import time
 
+import projenv
 
 def factorize_naive(n):
     """ A naive factorization method. Take integer 'n', return list of
@@ -92,8 +93,9 @@ def factorizer_worker(job_q, result_q,logi):
         outdict = {n: factorize_naive(n) for n in job}
         logi.info(outdict)
         result_q.put(outdict)
+        return 0
     except queue.Empty:
-        return
+        return -1
 
 def mp_factorizer(shared_job_q, shared_result_q, nprocs,logi):
     """ Split the work with jobs in def runserver():
@@ -128,22 +130,34 @@ def mp_factorizer(shared_job_q, shared_result_q, nprocs,logi):
         finished.
     """
     procs = []
-    while len(procs) < nprocs:
-        p = multiprocessing.Process(
-                target=factorizer_worker,
-                args=(shared_job_q, shared_result_q,logi))
-        procs.append(p)
-        logi.info("Starting Process "+str(p))
-        p.start()
-
-    while len(procs) >= nprocs:
-        delprocs=[]
-        for p in procs:
-            ec=p.exitcode
-            logi.info("Exit code was "+str(ec))
-            if ec != None:
-                p.join()
-                delprocs.append(p)
+    delprocs = []
+    sjq_sz=shared_job_q.qsize()
+    if sjq_sz == None:
+        sjq_sz = 0
+    while sjq_sz > 0:
+        delprocs = []
+        if len(procs) < nprocs:
+            p = multiprocessing.Process(
+                    target=factorizer_worker,
+                    args=(shared_job_q, shared_result_q,logi))
+            procs.append(p)
+            logi.info("Starting Process "+str(p))
+            p.start()
+        else:
+            for p in procs:
+                ec=p.exitcode
+                if ec != None:
+                    logi.info("Exit code was " + str(ec))
+                    p.join()
+                    delprocs.append(p)
+        if len(delprocs) > 0:
+            for p in delprocs:
+                logi.info("Deleting process "+str(p))
+                i2d=procs.index(p)
+                procs.__delitem__(i2d)
+        sjq_sz = shared_job_q.qsize()
+        if sjq_sz == None:
+            sjq_sz = 0
 
 
 def mp_fproc(shared_job_q, shared_result_q, nprocs,logi):
@@ -201,7 +215,7 @@ def factor_ingest(shared_job_q):
     https://eli.thegreenplace.net/2012/01/16/python-parallelizing-cpu-bound-tasks-with-multiprocessing/
     '''
 
-    N = 99
+    N = 999
     nums = make_nums(N)
 
     # The numbers are split into chunks. Each chunk is pushed into the job
@@ -215,30 +229,38 @@ def runserver(IP,PORTNUM,AUTHKEY,loglevel=logging.INFO):
     # Start a shared manager server and access its queues
     logger = multiprocessing.log_to_stderr()
     logger.setLevel(loglevel)
-    try:
-        manager = make_server_manager(IP, PORTNUM, AUTHKEY)
-        shared_job_q = manager.get_job_q()
-        shared_result_q = manager.get_result_q()
-        N=0
-        factor_ingest(shared_job_q)
-        N=shared_job_q.qsize()
-        logger.info("Initial Job Que Objects "+str(N))
-        # Wait until all results are ready in shared_result_q
-        numresults = 0
-        resultdict = {}
-        while numresults < N:
-            outdict = shared_result_q.get()
-            resultdict.update(outdict)
-            logger.warning(outdict)
-            numresults += len(outdict)
-        # Sleep a bit before shutting down the server - to give clients time to
-        # realize the job queue is empty and exit in an orderly way.
-        time.sleep(2)
-        print("Shutting Down Server")
-        manager.shutdown()
-    except Exception as e:
-        logger.error(traceback.format_exc())
+    manager = make_server_manager(IP, PORTNUM, AUTHKEY)
+    shared_job_q = manager.get_job_q()
+    shared_result_q = manager.get_result_q()
+    N = 0
+    M = 0
+    while True:
+        try:
+            N=shared_job_q.qsize()
+            logger.info("Initial Job Que Objects "+str(N))
+            # Wait until all results are ready in shared_result_q
+            resultdict = {}
+            while True:
+                outdict={}
+                M=shared_result_q.qsize()
+                if N > 0:
+                    if M > 0:
+                        outdict = shared_result_q.get()
+                        resultdict.update(outdict)
+                        logger.warning(outdict)
+                    M=shared_result_q.qsize()
+                    logger.info("Shared Job Q %s Vs. Shared Result Q %s" %(N,M))
+                else:
+                    time.sleep()
+                N=shared_job_q.qsize()
 
+        except Exception as e:
+            logger.error(traceback.format_exc())
+    # Sleep a bit before shutting down the server - to give clients time to
+    # realize the job queue is empty and exit in an orderly way.
+    time.sleep(2)
+    print("Shutting Down Server")
+    manager.shutdown()
 
 def make_client_manager(ip, port, authkey):
     """ Create a manager for a client. This manager connects to a server on the
@@ -267,9 +289,51 @@ def runclient(IP,PORTNUM,AUTHKEY,loglevel=logging.INFO):
     while True:
         try:
             mp_factorizer(job_q, result_q, 4,logger)
+        except EOFError:
+            logger.error("EOF Error may be dead server or just empty que")
+            return
         except Exception as e:
+            logger.error("exception was "+str(e))
             logger.error(traceback.format_exc())
             time.sleep(60)
+
+def ingest_pick(shared_jq,type,loc):
+    '''runs ingest type '''
+    itypes=['csv','factor']
+    if type not in itypes:
+        return
+    if ingesttype == 'csv':
+        csv_ingest(shared_jq,type,loc)
+    elif ingesttype == 'factor':
+        factor_ingest(shared_jq)
+
+def runclient_ingest(IP,PORTNUM,AUTHKEY,loglevel=logging.INFO,ingesttype='csv',ingest_loc=''):
+    logger = multiprocessing.log_to_stderr()
+    logger.setLevel(loglevel)
+    manager = make_client_manager(IP, PORTNUM, AUTHKEY)
+    job_q = manager.get_job_q()
+    result_q = manager.get_result_q()
+    N = 0
+    M = 0
+    ingest_pick(shared_job_q,ingesttype,ingest_loc)
+
+    while True:
+        try:
+            N=shared_job_q.qsize()
+            logger.info("Initial Job Que Objects "+str(N))
+            # Wait until all results are ready in shared_result_q
+            while True:
+                M=shared_result_q.qsize()
+                if N > 0:
+                    M=shared_result_q.qsize()
+                    logger.info("Shared Job Q %s Vs. Shared Result Q %s" %(N,M))
+                else:
+                    ingest_pick(shared_job_q, ingesttype,ingest_loc)
+                N=shared_job_q.qsize()
+
+        except Exception as e:
+            logger.error(traceback.format_exc())
+
 
 if __name__ == '__main__':
 

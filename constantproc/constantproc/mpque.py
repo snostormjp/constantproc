@@ -10,6 +10,7 @@ import traceback
 import time
 
 import projenv
+import ingests as ing
 
 def factorize_naive(n):
     """ A naive factorization method. Take integer 'n', return list of
@@ -80,6 +81,24 @@ def worker(num,wait=2):
     wo=subprocess.Popen(['sleep',str(wait)])
     wo.wait()
     return ("worker "+str(num)+" returned after "+str((dt.now()-st).seconds))
+
+def worker(job_q, result_q,logi):
+    """ A worker function to be launched in a separate process. Takes jobs from
+        job_q - each job a list of numbers to factorize. When the job is done,
+        the result (dict mapping number -> list of factors) is placed into
+        result_q. Runs until job_q is empty.
+    """
+    outdict={}
+    try:
+        job = job_q.get_nowait()
+        logi.info(job)
+        logi.info("type for job q object is "+str(type(job)))
+        # eval job obj and do something return outdict to result q
+        logi.info(outdict)
+        result_q.put(outdict)
+        return 0
+    except queue.Empty:
+        return -1
 
 def factorizer_worker(job_q, result_q,logi):
     """ A worker function to be launched in a separate process. Takes jobs from
@@ -202,29 +221,6 @@ def make_server_manager(ip,port, authkey):
     print('Server started at port %s' % port)
     return manager
 
-def make_nums(N):
-    """ Create N large numbers to factorize.
-    """
-    nums = [999]
-    for i in range(0,N):
-        nums.append(nums[-1] + 2)
-    return nums
-
-def factor_ingest(shared_job_q):
-    '''This is demo ingest for factorize example as seen on
-    https://eli.thegreenplace.net/2012/01/16/python-parallelizing-cpu-bound-tasks-with-multiprocessing/
-    '''
-
-    N = 999
-    nums = make_nums(N)
-
-    # The numbers are split into chunks. Each chunk is pushed into the job
-    # queue.
-    chunksize = 43
-    for i in range(0, len(nums), chunksize):
-        shared_job_q.put(nums[i:i + chunksize])
-
-
 def runserver(IP,PORTNUM,AUTHKEY,loglevel=logging.INFO):
     # Start a shared manager server and access its queues
     logger = multiprocessing.log_to_stderr()
@@ -251,7 +247,7 @@ def runserver(IP,PORTNUM,AUTHKEY,loglevel=logging.INFO):
                     M=shared_result_q.qsize()
                     logger.info("Shared Job Q %s Vs. Shared Result Q %s" %(N,M))
                 else:
-                    time.sleep()
+                    time.sleep(30)
                 N=shared_job_q.qsize()
 
         except Exception as e:
@@ -303,9 +299,9 @@ def ingest_pick(shared_jq,type,loc):
     if type not in itypes:
         return
     if ingesttype == 'csv':
-        csv_ingest(shared_jq,type,loc)
+        ing.csv_ingest(shared_jq,type,loc)
     elif ingesttype == 'factor':
-        factor_ingest(shared_jq)
+        ing.factor_ingest(shared_jq)
 
 def runclient_ingest(IP,PORTNUM,AUTHKEY,loglevel=logging.INFO,ingesttype='csv',ingest_loc=''):
     logger = multiprocessing.log_to_stderr()
@@ -341,4 +337,6 @@ if __name__ == '__main__':
         runserver('192.168.2.28',50000,'abc'.encode('ASCII'))
     elif sys.argv[1] == 'start_client':
         runclient('192.168.2.28',50000,'abc'.encode('ASCII'))
+    elif sys.argv[1] == 'start_ingest':
+        runclient_ingest('192.168.2.28',50000,'abc'.encode('ASCII'),ingesttype='csv',ingest_loc='')
 

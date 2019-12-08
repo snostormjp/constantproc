@@ -33,4 +33,4 @@ def csv_ingest(shared_jq,type,loc):
         fd=open(f,'r')
         csv.DictReader.reader(f)
         fd.close()
-    shared_job_q.put(jobdict)
+    shared_jq.put(jobdict)

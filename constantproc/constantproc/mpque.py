@@ -12,7 +12,7 @@ import projenv as penv
 import ingests as ing
 import workers as wkr
 
-
+idir=penv.ingest_dir
 
 
 
@@ -44,7 +44,7 @@ def factorizer_worker(job_q, result_q,logi):
     try:
         job = job_q.get_nowait()
         logi.info(job)
-        outdict = {n: factorize_naive(n) for n in job}
+        outdict = {n: wkr.factorize_naive(n) for n in job}
         logi.info(outdict)
         result_q.put(outdict)
         return 0
@@ -309,5 +309,5 @@ if __name__ == '__main__':
     elif sys.argv[1] == 'start_client':
         runclient('192.168.2.28',50000,'abc'.encode('ASCII'))
     elif sys.argv[1] == 'start_ingest':
-        runclient_ingest('192.168.2.28',50000,'abc'.encode('ASCII'),ingesttype='csv',ingest_loc='')
+        runclient_ingest('192.168.2.28',50000,'abc'.encode('ASCII'),ingesttype='csv',ingest_loc='../tests')
 

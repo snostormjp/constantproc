@@ -31,6 +31,9 @@ def csv_ingest(shared_jq,type,loc):
     fl=ls(loc+'/*.csv')
     for f in fl:
         fd=open(f,'r')
-        csv.DictReader.reader(f)
+        infile=csv.DictReader(fd,dialect=type)
+        print(infile.dialect)
+        print(infile)
+        for jobdict in infile:
+            shared_jq.put(jobdict)
         fd.close()
-    shared_jq.put(jobdict)

@@ -1,4 +1,4 @@
-import sys
+import os,sys
 import multiprocessing
 from multiprocessing.managers import BaseManager
 import queue
@@ -8,9 +8,9 @@ from datetime import datetime as dt
 import traceback
 import time
 
-import projenv as penv
-import ingests as ing
-import workers as wkr
+from constantproc import projenv as penv
+from constantproc import ingests as ing
+from constantproc import workers as wkr
 
 idir=penv.ingest_dir
 
@@ -133,12 +133,12 @@ def mp_fproc(shared_job_q, shared_result_q, nprocs,logi):
         delprocs = []
         if len(procs) < nprocs:
             jobqo=shared_job_q.get_nowait()
-            if 'nextproc' in jobqo:
+            if 'nextwrk' in jobqo:
                 p = multiprocessing.Process(
-                    target=jobqo['nextproc'],
+                    target=jobqo['nextwrk'],
                     args=(jobqo, shared_result_q,logi))
                 procs.append(p)
-                logi.info("Starting Process "+str(p))
+                logi.info("Starting Worker "+str(p))
                 p.start()
         else:
             for p in procs:
@@ -265,7 +265,8 @@ def ingest_pick(shared_jq,type,loc):
     if type not in itypes:
         return
     if type == 'csv':
-        ing.csv_ingest(shared_jq,type,loc)
+        if os.name == 'posix':
+            ing.csv_ingest(shared_jq,'unix',loc)
     elif type == 'factor':
         ing.factor_ingest(shared_jq)
 
@@ -303,11 +304,11 @@ def runclient_ingest(IP, PORTNUM, AUTHKEY, loglevel=logging.INFO, ingesttype='cs
 
 
 if __name__ == '__main__':
-
+    serverip='192.168.2.28'
     if sys.argv[1] == 'start_server':
-        runserver('192.168.2.28',50000,'abc'.encode('ASCII'))
+        runserver(serverip,50000,'abc'.encode('ASCII'))
     elif sys.argv[1] == 'start_client':
-        runclient('192.168.2.28',50000,'abc'.encode('ASCII'))
+        runclient(serverip,50000,'abc'.encode('ASCII'))
     elif sys.argv[1] == 'start_ingest':
-        runclient_ingest('192.168.2.28',50000,'abc'.encode('ASCII'),ingesttype='csv',ingest_loc='../tests')
+        runclient_ingest(serverip,50000,'abc'.encode('ASCII'),ingesttype='csv',ingest_loc='../tests')
 

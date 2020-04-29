@@ -7,6 +7,7 @@ import logging
 from datetime import datetime as dt
 import traceback
 import time
+import socket
 
 from constantproc import projenv as penv
 from constantproc import ingests as ing
@@ -304,7 +305,9 @@ def runclient_ingest(IP, PORTNUM, AUTHKEY, loglevel=logging.INFO, ingesttype='cs
 
 
 if __name__ == '__main__':
-    serverip='192.168.2.28'
+    #serverip='192.168.2.28'
+    serverip=socket.getaddrinfo(socket.gethostname(),22,socket.AddressFamily.AF_INET,1)[0][4][0]
+
     if sys.argv[1] == 'start_server':
         runserver(serverip,50000,'abc'.encode('ASCII'))
     elif sys.argv[1] == 'start_client':
